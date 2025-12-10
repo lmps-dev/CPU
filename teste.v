@@ -1,0 +1,255 @@
+// Remova os 'include' se estiver usando o Quartus (adicione os arquivos .v no projeto)
+// `include "memory.v"
+// `include "module_alu.v"
+// `include "lcd2.v"
+
+module teste(
+    input clk,              // Clock 50MHz (PIN_Y2)
+    input power,            // Botão Reset/Power (PIN_M23 / KEY0)
+    input send,             // Botão Enviar (PIN_R24 / KEY3)
+    input [17:0] switches,  // Switches de dados (PIN_Y23...PIN_AB28)
+   
+    // Saídas para o LCD
+    output wire [7:0] data, // LCD_DATA
+    output wire rs,         // LCD_RS
+    output wire rw,         // LCD_RW
+    output wire en,         // LCD_EN
+    output wire lcd_on      // LCD_ON (Ligado ao PIN_L5)
+);
+
+    // --- Parâmetros de Estado ---
+    localparam OFF        = 3'd0;
+    localparam IDLE       = 3'd1;
+    localparam FETCH      = 3'd2;
+    localparam DECODE     = 3'd3;
+    localparam EXECUTE    = 3'd4;
+    localparam UPDATE_LCD = 3'd5;
+
+    // --- Registradores e Controle ---
+    reg [2:0] state = IDLE;
+    reg system_on = 1; // 
+    reg prev_power = 1;
+    reg prev_send = 1;
+
+    // --- Decodificação da Instrução ---
+    reg [2:0] opcode;
+    reg [3:0] dest_reg;
+    reg [3:0] src1_reg;
+    reg [3:0] src2_reg;
+    reg [15:0] immediate;
+    reg use_immediate;
+    reg is_load;
+
+    // --- Sinais Internos ---
+    // Memória
+    wire [15:0] mem_read_data1;
+    wire [15:0] mem_read_data2;
+    reg [3:0] mem_read_addr1;
+    reg [3:0] mem_read_addr2;
+    reg [3:0] mem_write_addr;
+    reg [15:0] mem_write_data;
+    reg mem_write_en;
+    reg mem_reset;
+
+    // ULA
+    wire [15:0] alu_result;
+    reg [15:0] alu_in_A;
+    reg [15:0] alu_in_B;
+
+    // LCD
+    reg lcd_update_en;
+    wire [15:0] lcd_reg_value;
+
+    // --- Instanciação dos Módulos ---
+   
+    // Memória RAM 16x16
+    memory mem_inst (
+        .clk(clk),
+        .reset(mem_reset),
+        .read_reg1(mem_read_addr1),
+        .read_reg2(mem_read_addr2),
+        .write_reg(mem_write_addr),
+        .write_data(mem_write_data),
+        .reg_write_en(mem_write_en),
+        .read_data1(mem_read_data1),
+        .read_data2(mem_read_data2)
+    );
+
+    // Unidade Lógica Aritmética
+    module_alu alu_inst (
+        .register_A(alu_in_A),
+        .register_B(alu_in_B),
+        .opcode(opcode),
+        .result(alu_result)
+    );
+
+    // Driver do LCD (Certifique-se que o arquivo lcd2.v tem o módulo chamado 'lcd')
+    lcd lcd_inst (
+        .clk_50MHz(clk),
+        .reset_n(!mem_reset),    // Reset ativo baixo para o módulo LCD
+        .system_on(system_on),
+        .display_enable(lcd_update_en),
+        .opcode_last(opcode),
+        .reg_number(src1_reg),   // Usado para mostrar qual registrador foi afetado
+        .reg_value(lcd_reg_value),
+        .LCD_DATA(data),
+        .LCD_RS(rs),
+        .LCD_EN(en),
+        .LCD_RW(rw),
+        .LCD_ON(lcd_on)
+    );
+
+    // Multiplexador para decidir o que mostrar no LCD:
+    // Se for instrução DISPLAY (111), mostra o dado lido da memória.
+    // Para as outras (ADD, LOAD, etc), mostra o resultado que acabou de ser calculado/escrito.
+    assign lcd_reg_value = (opcode == 3'b111) ? mem_read_data1 : mem_write_data;
+
+    // --- Lógica Sequencial (FSM) ---
+    always @(posedge clk) begin
+        // Controle do botão Power (Toggle ON/OFF)
+        // Detecta borda de descida (Pressionou -> Soltou = 1) ou Pressionou (1->0)?
+        // Na DE2-115, botão apertado = 0. Borda de subida (soltou) = 0 -> 1.
+        if (power && !prev_power) begin // Soltou o botão
+            system_on <= ~system_on;
+            if (system_on) begin // Estava ligado, vai desligar
+                state <= OFF;
+                mem_reset <= 1;
+            end else begin       // Estava desligado, vai ligar
+                state <= IDLE;
+                mem_reset <= 1;  // Reseta memória ao ligar
+            end
+        end
+        prev_power <= power;
+
+        // Reset geral se desligado
+        if (!system_on) begin
+            state <= OFF;
+            mem_reset <= 1;
+            lcd_update_en <= 0;
+            mem_write_en <= 0;
+        end else begin
+            // Operação Normal
+            if (state != OFF && state != IDLE) mem_reset <= 0; // Solta o reset após iniciar
+           
+            case (state)
+                OFF: begin
+                    // Aguarda ligar
+                end
+
+                IDLE: begin
+                    mem_write_en <= 0;
+                    lcd_update_en <= 0;
+                    mem_reset <= 0;
+                   
+                    // Detecta soltura do botão SEND (borda de subida: 0 -> 1)
+                    if (send && !prev_send) begin
+                        state <= FETCH;
+                    end
+                end
+
+                FETCH: begin
+                    // Lê os switches (já estão estáveis)
+                    state <= DECODE;
+                end
+
+                DECODE: begin
+                    // Lógica baseada no PDF para extrair Opcode e Operandos
+                   
+                    // -- Tipo 2: Reg x Imediato (Opcode bits 17-15) --
+                    // ADDI(010), SUBI(100), MUL(101)
+                    if (1) begin
+							opcode <= 3'b100;
+							dest_reg <= switches[14:11];
+                        src1_reg <= 4'b1101;
+                        // Imediato com sinal (bit 6) e módulo (5:0)
+                        immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
+                        use_immediate <= 1;
+                        is_load <= 0;
+						  end else if (switches[17:15] == 3'b010 || switches[17:15] == 3'b100 || switches[17:15] == 3'b101) begin
+                        opcode <= switches[17:15];
+                        dest_reg <= switches[14:11];
+                        src1_reg <= switches[10:7];
+                        // Imediato com sinal (bit 6) e módulo (5:0)
+                        immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
+                        use_immediate <= 1;
+                        is_load <= 0;
+                    end
+                    // -- Tipo 1: Reg x Reg (Opcode bits 14-12) --
+                    // ADD(001), SUB(011)
+                    else if (switches[14:12] == 3'b001 || switches[14:12] == 3'b011) begin
+                        opcode <= switches[14:12];
+                        dest_reg <= switches[11:8];
+                        src1_reg <= switches[7:4];
+                        src2_reg <= switches[3:0];
+                        use_immediate <= 0;
+                        is_load <= 0;
+                    end
+                    // -- Tipo 3: LOAD (Opcode bits 13-11) --
+                    // LOAD(000)
+                    else if (switches[13:11] == 3'b000) begin
+                        opcode <= 3'b000;
+                        dest_reg <= switches[10:7];
+                        immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
+                        use_immediate <= 1;
+                        is_load <= 1;
+                    end
+                    // -- Tipo 4: Especiais --
+                    else begin
+                        // Tenta identificar DISPLAY (111) ou CLEAR (110)
+                        // Ajuste conforme a posição real do seu switch para esses casos.
+                        // Assumindo que o usuário coloca o Opcode nos bits mais altos [17:15] para facilitar:
+                        if (switches[17:15] == 3'b111) begin // DISPLAY
+                            opcode <= 3'b111;
+                            src1_reg <= switches[3:0]; // Reg a mostrar
+                        end else begin // CLEAR (110 ou default)
+                            opcode <= 3'b110;
+                            mem_reset <= 1; // Pulso de reset na memória
+                        end
+                        use_immediate <= 0;
+                        is_load <= 0;
+                    end
+                   
+                    state <= EXECUTE;
+                end
+
+                EXECUTE: begin
+                    if (opcode == 3'b110) mem_reset <= 0; // Solta reset se foi CLEAR
+
+                    // Configura endereços de leitura para a memória
+                    mem_read_addr1 <= src1_reg; // Fonte 1 (ou fonte do Display)
+                    mem_read_addr2 <= src2_reg; // Fonte 2
+
+                    // Configura entradas da ULA
+                    alu_in_A <= mem_read_data1;
+                    alu_in_B <= (use_immediate) ? immediate : mem_read_data2;
+
+                    // Controle de Escrita
+                    // LOAD, ADD, SUB, ADDI, SUBI, MUL escrevem. CLEAR e DISPLAY não.
+                    if (opcode != 3'b111 && opcode != 3'b110) begin
+                        mem_write_en <= 1;
+                        mem_write_addr <= dest_reg;
+                       
+                        if (is_load)
+                            mem_write_data <= immediate; // LOAD ignora ULA
+                        else
+                            mem_write_data <= alu_result;
+                    end
+                   
+                    state <= UPDATE_LCD;
+                end
+
+                UPDATE_LCD: begin
+                    mem_write_en <= 0; // Termina escrita
+                   
+                    // Prepara qual registrador mostrar no LCD
+                    // Se não for DISPLAY, queremos mostrar o destino da operação.
+                    if (opcode != 3'b111) src1_reg <= dest_reg;
+
+                    lcd_update_en <= 1; // Pulso para atualizar LCD
+                    state <= IDLE;
+                end
+            endcase
+        end
+        prev_send <= send;
+    end
+endmodule

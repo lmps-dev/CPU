@@ -28,6 +28,8 @@ module module_mini_cpu(
 
     // --- Backlight sempre ligado ---
     assign lcd_blon = 1'b1;
+   
+    // REMOVIDO: assign lcd_on = system_on; // LCD deve ser controlado pelo módulo LCD
 
     // --- Decodificação da Instrução ---
     reg [2:0] opcode;
@@ -49,14 +51,10 @@ module module_mini_cpu(
     reg mem_write_en = 0;
     reg mem_reset = 0;
 
-    // ULA (AGORA SÃO WIRES - CORREÇÃO CRÍTICA DE TIMING)
+    // ULA
     wire [15:0] alu_result;
-    wire [15:0] alu_in_A;
-    wire [15:0] alu_in_B;
-
-    // Conexão direta para evitar leitura atrasada
-    assign alu_in_A = mem_read_data1;
-    assign alu_in_B = (use_immediate) ? immediate : mem_read_data2;
+    reg [15:0] alu_in_A = 0;
+    reg [15:0] alu_in_B = 0;
 
     // LCD
     reg lcd_update_en = 0;
@@ -81,7 +79,6 @@ module module_mini_cpu(
     module_alu alu_inst (
         .register_A(alu_in_A),
         .register_B(alu_in_B),
-		  .sendButton(send),
         .opcode(opcode),
         .result(alu_result)
     );
@@ -89,7 +86,7 @@ module module_mini_cpu(
     // Driver do LCD
     lcd lcd_inst (
         .clk_50MHz(clk),
-        .reset_n(system_on),    // Reset ativo baixo quando desligado
+        .reset_n(system_on),    // Usar system_on como reset (ativo baixo quando desligado)
         .system_on(system_on),
         .display_enable(lcd_update_en),
         .opcode_last(opcode),
@@ -99,7 +96,7 @@ module module_mini_cpu(
         .LCD_RS(rs),
         .LCD_EN(en),
         .LCD_RW(rw),
-        .LCD_ON(lcd_on) 
+        .LCD_ON(lcd_on) // O módulo LCD controla este sinal
     );
 
     // Multiplexador LCD
@@ -130,6 +127,7 @@ module module_mini_cpu(
            
             case (state)
                 OFF: begin
+                    // Estado de desligado
                     mem_write_en <= 0;
                     lcd_update_en <= 0;
                 end
@@ -147,60 +145,41 @@ module module_mini_cpu(
                 end
 
                 DECODE: begin
-                    // CORREÇÃO CRÍTICA: Ler switches DIRETO para o endereço de memória
-                    // Isso garante que o endereço esteja pronto para o ciclo EXECUTE
-                    
-                    // -- Tipo Imediato (ADDI, SUBI, MULI) --
-                    if (switches[17:15] == 3'b010 || switches[17:15] == 3'b100 || switches[17:15] == 3'b101) begin 
+                    // Lógica de switches mantida igual ao original
+                    if (switches[17:15] == 3'b010 || switches[17:15] == 3'b100 || switches[17:15] == 3'b101) begin // Imediato
                         opcode <= switches[17:15];
                         dest_reg <= switches[14:11];
                         src1_reg <= switches[10:7];
                         immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
                         use_immediate <= 1;
                         is_load <= 0;
-                        
-                        // Atualiza endereço de LEITURA imediatamente
-                        mem_read_addr1 <= switches[10:7];
-                        mem_read_addr2 <= 4'b0; // Não usado
                     end
-                    // -- Tipo Reg-Reg (ADD, SUB) --
-                    else if (switches[17:15] == 3'b001 || switches[17:15] == 3'b011) begin 
-                        opcode <= switches[17:15];
-                        dest_reg <= switches[14:11];
-                        src1_reg <= switches[10:7];
-                        src2_reg <= switches[6:3];
+                    else if (switches[14:12] == 3'b001 || switches[14:12] == 3'b011) begin // Reg-Reg
+                        opcode <= switches[14:12];
+                        dest_reg <= switches[11:8];
+                        src1_reg <= switches[7:4];
+                        src2_reg <= switches[3:0];
                         use_immediate <= 0;
                         is_load <= 0;
-                        
-                        // Atualiza endereços de LEITURA imediatamente
-                        mem_read_addr1 <= switches[10:7];
-                        mem_read_addr2 <= switches[6:3];
                     end
-                    // -- LOAD --
-                    else if (switches[17:15] == 3'b000) begin 
+                    else if (switches[13:11] == 3'b000) begin // LOAD
                         opcode <= 3'b000;
-                        dest_reg <= switches[14:11];
-                        immediate <= switches[10] ? -{10'd0, switches[9:4]} : {10'd0, switches[9:4]};
+                        dest_reg <= switches[10:7];
+                        immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
                         use_immediate <= 1;
                         is_load <= 1;
-                        // LOAD não lê memória, endereços irrelevantes
                     end
-                    // -- Especiais (DISPLAY / CLEAR) --
-                    else begin 
+                    else begin // Especiais
                         if (switches[17:15] == 3'b111) begin // DISPLAY
                             opcode <= 3'b111;
-                            src1_reg <= switches[14:11]; // Ajuste conforme seu padrão
-                            mem_read_addr1 <= switches[14:11]; // Ler o registrador para mostrar
-                            use_immediate <= 0;
-                            is_load <= 0;
-                        end else begin // CLEAR (Default)
-                            opcode <= 3'b110; // CORREÇÃO: Forçar Opcode CLEAR
+                            src1_reg <= switches[3:0];
+                        end else begin // CLEAR
+                            opcode <= 3'b110;
                             mem_reset <= 1;
-                            use_immediate <= 0;
-                            is_load <= 0;
                         end
+                        use_immediate <= 0;
+                        is_load <= 0;
                     end
-                    
                     state <= EXECUTE;
                 end
 
@@ -209,16 +188,19 @@ module module_mini_cpu(
                         mem_reset <= 0;
                     end
 
-                    // Nota: alu_in_A e B agora são wires e atualizam automaticamente
-                    // assim que mem_read_data1 chega da memória.
+                    mem_read_addr1 <= src1_reg;
+                    mem_read_addr2 <= src2_reg;
+
+                    alu_in_A <= mem_read_data1;
+                    alu_in_B <= (use_immediate) ? immediate : mem_read_data2;
 
                     if (opcode != 3'b111 && opcode != 3'b110) begin
                         mem_write_en <= 1;
                         mem_write_addr <= dest_reg;
                         if (is_load) mem_write_data <= immediate;
                         else mem_write_data <= alu_result;
-                    end                 
-                    
+                    end
+                   
                     state <= UPDATE_LCD;
                 end
 
@@ -228,7 +210,7 @@ module module_mini_cpu(
                     lcd_update_en <= 1;
                     state <= IDLE;
                 end
-            
+               
                 default: state <= IDLE;
             endcase
         end

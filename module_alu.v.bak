@@ -1,7 +1,6 @@
 module module_alu (
     input [15:0] register_A,
     input [15:0] register_B,
-	 input sendButton,
     input [2:0] opcode,
     output reg [15:0] result
 );
@@ -26,13 +25,15 @@ module module_alu (
             operand_B = $signed(register_B);
 
             case (opcode)
-					 3'b001: result_c2 = operand_A + operand_B;  // ADD (reg-reg)
-					 3'b010: result_c2 = operand_A + operand_B;  // ADDI
-					 3'b011: result_c2 = operand_A - operand_B;  // SUB (reg-reg)
-					 3'b100: result_c2 = operand_A - operand_B;  // SUBI
-					 3'b101: result_c2 = operand_A * operand_B;  // MUL/MULI
-					 default: result_c2 = result_c2;
-				endcase
+                ADD:  result_c2 = operand_A + operand_B;
+                ADDI: result_c2 = operand_A + operand_B;
+                SUB:  result_c2 = operand_A - operand_B;
+                SUBI: result_c2 = operand_A - operand_B;
+                MUL:  begin
+                    // Para multiplicação, precisamos de mais bits
+                    result_c2 = operand_A * operand_B;
+                end
+            endcase
        
             // Truncar para 16 bits com saturação (opcional)
             if (result_c2 > 32767) begin
