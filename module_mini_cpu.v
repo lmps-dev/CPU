@@ -162,7 +162,7 @@ module module_mini_cpu(
                 end
                 else if (switches[17:15] == 3'b000) begin // LOAD
                     dest_reg <= switches[14:11];
-                    immediate <= switches[10] ? -{10'd0, switches[9:5]} : {10'd0, switches[9:5]};
+                    immediate <= switches[10] ? -{10'd0, switches[9:4]} : {10'd0, switches[9:4]};
                     use_immediate <= 1;
                     is_load <= 1;
                 end
@@ -204,7 +204,7 @@ module module_mini_cpu(
                     mem_write_addr <= dest_reg;
                     if (is_load) mem_write_data <= immediate;
                     else mem_write_data <= alu_result;
-                end
+                end                 
                 
                 state <= UPDATE_LCD;
             end
