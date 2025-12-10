@@ -102,117 +102,122 @@ module module_mini_cpu(
     // Multiplexador LCD
     assign lcd_reg_value = (opcode == 3'b111) ? mem_read_data1 : mem_write_data;
 
-    // --- Lógica Sequencial (FSM) ---
     always @(posedge clk) begin
-        // Controle Power
-        prev_power <= power;
-        prev_send <= send;
-       
-        if (power && !prev_power) begin
-            system_on <= ~system_on;
-            if (system_on) begin
-                state <= OFF;
-                mem_reset <= 1;
-            end else begin      
-                state <= IDLE;
-                mem_reset <= 1;  
-            end
-        end
-       
+    // Controle Power
+    prev_power <= power;
+    prev_send <= send;
+    
+    if (power && !prev_power) begin
+        system_on <= ~system_on;
         if (system_on) begin
-            // Reset deve ser ativo por apenas um ciclo
-            if (mem_reset) begin
-                mem_reset <= 0;
-            end
-           
-            case (state)
-                OFF: begin
-                    // Estado de desligado
-                    mem_write_en <= 0;
-                    lcd_update_en <= 0;
-                end
-
-                IDLE: begin
-                    mem_write_en <= 0;
-                    lcd_update_en <= 0;
-                    if (send && !prev_send) begin
-                        state <= FETCH;
-                    end
-                end
-
-                FETCH: begin
-                    state <= DECODE;
-                end
-
-                DECODE: begin
-                    // Lógica de switches mantida igual ao original
-                    if (switches[17:15] == 3'b010 || switches[17:15] == 3'b100 || switches[17:15] == 3'b101) begin // Imediato
-                        opcode <= switches[17:15];
-                        dest_reg <= switches[14:11];
-                        src1_reg <= switches[10:7];
-                        immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
-                        use_immediate <= 1;
-                        is_load <= 0;
-                    end
-                    else if (switches[14:12] == 3'b001 || switches[14:12] == 3'b011) begin // Reg-Reg
-                        opcode <= switches[14:12];
-                        dest_reg <= switches[11:8];
-                        src1_reg <= switches[7:4];
-                        src2_reg <= switches[3:0];
-                        use_immediate <= 0;
-                        is_load <= 0;
-                    end
-                    else if (switches[13:11] == 3'b000) begin // LOAD
-                        opcode <= 3'b000;
-                        dest_reg <= switches[10:7];
-                        immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
-                        use_immediate <= 1;
-                        is_load <= 1;
-                    end
-                    else begin // Especiais
-                        if (switches[17:15] == 3'b111) begin // DISPLAY
-                            opcode <= 3'b111;
-                            src1_reg <= switches[3:0];
-                        end else begin // CLEAR
-                            opcode <= 3'b110;
-                            mem_reset <= 1;
-                        end
-                        use_immediate <= 0;
-                        is_load <= 0;
-                    end
-                    state <= EXECUTE;
-                end
-
-                EXECUTE: begin
-                    if (opcode == 3'b110) begin
-                        mem_reset <= 0;
-                    end
-
-                    mem_read_addr1 <= src1_reg;
-                    mem_read_addr2 <= src2_reg;
-
-                    alu_in_A <= mem_read_data1;
-                    alu_in_B <= (use_immediate) ? immediate : mem_read_data2;
-
-                    if (opcode != 3'b111 && opcode != 3'b110) begin
-                        mem_write_en <= 1;
-                        mem_write_addr <= dest_reg;
-                        if (is_load) mem_write_data <= immediate;
-                        else mem_write_data <= alu_result;
-                    end
-                   
-                    state <= UPDATE_LCD;
-                end
-
-                UPDATE_LCD: begin
-                    mem_write_en <= 0;
-                    if (opcode != 3'b111) src1_reg <= dest_reg;
-                    lcd_update_en <= 1;
-                    state <= IDLE;
-                end
-               
-                default: state <= IDLE;
-            endcase
+            state <= OFF;
+            mem_reset <= 1;
+        end else begin      
+            state <= IDLE;
+            mem_reset <= 1;  
         end
     end
+    
+    if (system_on) begin
+        // Reset deve ser ativo por apenas um ciclo
+        if (mem_reset) begin
+            mem_reset <= 0;
+        end
+        
+        case (state)
+            OFF: begin
+                // Estado de desligado
+                mem_write_en <= 0;
+                lcd_update_en <= 0;
+            end
+
+            IDLE: begin
+                mem_write_en <= 0;
+                lcd_update_en <= 0;
+                if (send && !prev_send) begin
+                    state <= FETCH;
+                end
+            end
+
+            FETCH: begin
+                state <= DECODE;
+            end
+
+            DECODE: begin
+                // Lógica de switches mantida igual ao original
+                opcode <= switches[17:15];
+					 if (switches[17:15] == 3'b010 || switches[17:15] == 3'b100 || switches[17:15] == 3'b101) begin // Imediato
+                    dest_reg <= switches[14:11];
+                    src1_reg <= switches[10:7];
+                    immediate <= switches[6] ? -{10'd0, switches[5:0]} : {10'd0, switches[5:0]};
+                    use_immediate <= 1;
+                    is_load <= 0;
+                end
+                else if (switches[17:15] == 3'b001 || switches[17:15] == 3'b011) begin // Reg-Reg
+                    dest_reg <= switches[14:11];
+                    src1_reg <= switches[10:7];
+                    src2_reg <= switches[6:3];
+                    use_immediate <= 0;
+                    is_load <= 0;
+                end
+                else if (switches[17:15] == 3'b000) begin // LOAD
+                    dest_reg <= switches[14:11];
+                    immediate <= switches[10] ? -{10'd0, switches[9:5]} : {10'd0, switches[9:5]};
+                    use_immediate <= 1;
+                    is_load <= 1;
+                end
+                else begin // Especiais
+                    if (switches[17:15] == 3'b111) begin // DISPLAY
+                        src1_reg <= switches[14:11];
+                    end else begin // CLEAR
+                        mem_reset <= 1;
+                    end
+                    use_immediate <= 0;
+                    is_load <= 0;
+                end
+
+                // NOVA: Configure os endereços de leitura AQUI (para que estejam prontos no próximo ciclo)
+                if (opcode != 3'b000 && opcode != 3'b110) begin  // Só se precisar ler (não para LOAD ou CLEAR)
+                    mem_read_addr1 <= src1_reg;
+                    if (!use_immediate) begin
+                        mem_read_addr2 <= src2_reg;
+                    end else begin
+                        mem_read_addr2 <= 4'b0;  // Valor dummy, já que não é usado
+                    end
+                end
+                
+                state <= EXECUTE;
+            end
+
+            EXECUTE: begin
+                if (opcode == 3'b110) begin
+                    mem_reset <= 0;
+                end
+
+                // REMOVIDO: mem_read_addr1 e mem_read_addr2 (agora setados em DECODE)
+
+                alu_in_A <= mem_read_data1;
+                alu_in_B <= (use_immediate) ? immediate : mem_read_data2;
+
+                if (opcode != 3'b111 && opcode != 3'b110) begin
+                    mem_write_en <= 1;
+                    mem_write_addr <= dest_reg;
+                    if (is_load) mem_write_data <= immediate;
+                    else mem_write_data <= alu_result;
+                end
+                
+                state <= UPDATE_LCD;
+            end
+
+            UPDATE_LCD: begin
+                mem_write_en <= 0;
+                if (opcode != 3'b111) src1_reg <= dest_reg;
+                lcd_update_en <= 1;
+                state <= IDLE;
+            end
+            
+            default: state <= IDLE;
+        endcase
+    end
+end
 endmodule
