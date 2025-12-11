@@ -15,8 +15,8 @@ module lcd (
     output wire LCD_ON
 );
     // Configuração inicial das saídas
-    assign LCD_RW = 1'b0; // Sempre modo de escrita
-    assign LCD_ON = 1'b1; // LCD sempre ligado
+    assign LCD_RW = 1'b0;      // Sempre modo de escrita
+    assign LCD_ON = 1'b1;      // LCD sempre ligado
    
     // --- Parâmetros de Delay (Clock 50MHz) ---
     localparam DELAY_15MS  = 750_000;    // 15ms @ 50MHz
@@ -63,10 +63,11 @@ module lcd (
     reg [4:0] char_index = 0;
     reg [7:0] line1 [0:15];
     reg [7:0] line2 [0:15];
+   
     reg write_pending = 0;
     reg clear_pending = 0;
     reg init_mode = 0;
-    reg lcd_ready = 0; // Indica que LCD está pronto para receber comandos
+    reg lcd_ready = 0;  // Novo: indica que LCD está pronto para receber comandos
    
     // --- Lógica Auxiliar: Conversão Numérica ---
     wire signed [15:0] signed_value = reg_value;
@@ -75,7 +76,7 @@ module lcd (
    
     // Binário para BCD (Double Dabble)
     reg [19:0] bcd;
-    integer i, j;
+    integer i, j;  // Declarar i e j como inteiros
    
     always @(*) begin
         // Cálculo de valor absoluto e sinal
@@ -84,7 +85,7 @@ module lcd (
             abs_value = 32768;
         else
             abs_value = negative ? -signed_value : signed_value;
-            
+        
         // Conversão binário para BCD
         bcd = 0;
         for (i = 15; i >= 0; i = i - 1) begin
@@ -97,7 +98,7 @@ module lcd (
         end
     end
    
-    // --- FSM Principal Unificada ---
+    // --- FSM Principal Unificada (ÚNICO BLOCO ALWAYS) ---
     always @(posedge clk_50MHz or negedge reset_n) begin
         if (!reset_n) begin
             state <= OFF;
@@ -111,7 +112,7 @@ module lcd (
             delay_cnt <= 0;
             char_index <= 0;
             
-            // Inicializar buffers com espaços
+            // Inicializar line1 e line2 DENTRO deste bloco
             for (j = 0; j < 16; j = j + 1) begin
                 line1[j] <= " ";
                 line2[j] <= " ";
@@ -124,6 +125,7 @@ module lcd (
                 LCD_RS <= 0;
                 LCD_DATA <= 0;
                 lcd_ready <= 0;
+                
                 // Limpar buffers quando desligado
                 for (j = 0; j < 16; j = j + 1) begin
                     line1[j] <= " ";
@@ -232,7 +234,7 @@ module lcd (
                    
                     DISP_CLEAR: begin
                         LCD_RS <= 0;
-                        LCD_DATA <= 8'h01; // Comando Hardware Clear Screen
+                        LCD_DATA <= 8'h01;
                         next_state_after_pulse <= WAIT_2MS;
                         state <= PULSE_EN;
                     end
@@ -275,17 +277,17 @@ module lcd (
                     // === Estado IDLE e Preparação de Dados ===
                     IDLE: begin
                         init_mode <= 0;
-                        lcd_ready <= 1;  // LCD pronto
+                        lcd_ready <= 1;  // LCD pronto para receber comandos
                         LCD_EN <= 0;
-                        
+                       
                         if (display_enable && lcd_ready) begin
-                            // 1. Limpa Buffers (Preenche tudo com espaços)
+                            // 1. Limpa Buffers
                             for (j = 0; j < 16; j = j + 1) begin
                                 line1[j] <= " ";
                                 line2[j] <= " ";
                             end
                            
-                            // 2. Preenche Texto da Linha 1 baseado no Opcode
+                            // 2. Preenche Opcode
                             case (opcode_last)
                                 3'b000: begin 
                                     line1[0] <= "L"; line1[1] <= "O"; line1[2] <= "A"; line1[3] <= "D"; 
@@ -306,7 +308,6 @@ module lcd (
                                     line1[0] <= "M"; line1[1] <= "U"; line1[2] <= "L"; 
                                 end
                                 3'b110: begin
-                                    // Configura o texto CLEAR
                                     line1[0] <= "C"; line1[1] <= "L"; line1[2] <= "E";
                                     line1[3] <= "A"; line1[4] <= "R";
                                 end
@@ -314,43 +315,33 @@ module lcd (
                                     line1[0] <= "D"; line1[1] <= "P"; line1[2] <= "L"; 
                                 end
                                 default: begin 
-                                    // Mantém valores atuais ou espaços
+                                    // Mantém valores atuais
                                 end
                             endcase
                            
-                            // 3. Preenche Dados da Linha 2
+                            // 3. Preenche Dados (Se não for CLEAR)
                             if (opcode_last == 3'b110) begin
-                                // MODIFICAÇÃO: Não ativa clear_pending.
-                                // A linha 2 já foi limpa pelos loops no passo 1.
-                                // A linha 1 já tem "CLEAR" do passo 2.
-                                // Apenas seguimos para escrever na tela.
-                                clear_pending <= 0;
+                                clear_pending <= 1;
                             end else begin
-                                // Lógica normal para mostrar números
-                                
-                                // Reg Number (binário) ex: "0" a "15" (mas aqui é só 1 dígito hex se fosse converter, mas o código original soma 0x30 direto bit a bit - isso parece ser binário visual)
+                                // Reg Number (binário)
                                 line2[0] <= 8'h30 + reg_number[3];
                                 line2[1] <= 8'h30 + reg_number[2];
                                 line2[2] <= 8'h30 + reg_number[1];
                                 line2[3] <= 8'h30 + reg_number[0];
-                                
                                 // Sinal e Valor
                                 line2[5] <= negative ? "-" : "+";
-                                
                                 // Converter BCD para ASCII
                                 line2[6] <= (bcd[19:16] == 0) ? " " : 8'h30 + bcd[19:16];
                                 line2[7] <= (bcd[15:12] == 0 && bcd[19:16] == 0) ? " " : 8'h30 + bcd[15:12];
                                 line2[8] <= 8'h30 + bcd[11:8];
                                 line2[9] <= 8'h30 + bcd[7:4];
                                 line2[10] <= 8'h30 + bcd[3:0];
-                                
                                 clear_pending <= 0;
                             end
                            
                             write_pending <= 1;
                             lcd_ready <= 0;  // LCD ocupado
-                            state <= IDLE;   // Recarrega IDLE para iniciar a escrita no próximo clock
-                            
+                            state <= IDLE;   // Permanece em IDLE para capturar a transição
                         end else if (write_pending) begin
                             if (clear_pending) begin
                                 state <= CLEAR_SCREEN;
@@ -365,7 +356,7 @@ module lcd (
                     // === Sequência de Escrita no LCD ===
                     SET_ADDR1: begin
                         LCD_RS <= 0;
-                        LCD_DATA <= 8'h80;  // Endereço linha 1 (0x00)
+                        LCD_DATA <= 8'h80;  // Endereço linha 1
                         next_state_after_pulse <= WAIT_ADDR1;
                         state <= PULSE_EN;
                     end
@@ -401,7 +392,7 @@ module lcd (
                    
                     SET_ADDR2: begin
                         LCD_RS <= 0;
-                        LCD_DATA <= 8'hC0; // Endereço linha 2 (0x40)
+                        LCD_DATA <= 8'hC0;  // Endereço linha 2
                         next_state_after_pulse <= WAIT_ADDR2;
                         state <= PULSE_EN;
                     end
@@ -443,13 +434,15 @@ module lcd (
                         state <= PULSE_EN;
                     end
                    
-                    // === Gerador de Pulso Enable ===
+                    // === Gerador de Pulso Enable (CORRIGIDO) ===
                     PULSE_EN: begin
+                        // RESET do contador ao entrar neste estado
                         if (delay_cnt == 0) begin
                             LCD_EN <= 1;
                         end
                        
                         delay_cnt <= delay_cnt + 1;
+                       
                         if (delay_cnt >= DELAY_40US) begin
                             LCD_EN <= 0;
                             delay_cnt <= 0;
