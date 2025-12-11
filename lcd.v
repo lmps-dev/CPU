@@ -18,14 +18,14 @@ module lcd (
     assign LCD_RW = 1'b0; // Sempre modo de escrita
     assign LCD_ON = 1'b1; // LCD sempre ligado
    
-    // --- Parâmetros de Delay (Clock 50MHz) ---
+    // Parâmetros de Delay (Clock 50MHz)
     localparam DELAY_15MS  = 750_000;    // 15ms @ 50MHz
     localparam DELAY_4_1MS = 205_000;    // 4.1ms
     localparam DELAY_100US = 5_000;      // 100us
     localparam DELAY_40US  = 2_000;      // 40us
     localparam DELAY_2MS   = 100_000;    // 2ms
    
-    // --- Estados da FSM ---
+    // Estados da FSM
     localparam [5:0]
         OFF = 0,
         POWER_ON = 1,
@@ -68,12 +68,12 @@ module lcd (
     reg init_mode = 0;
     reg lcd_ready = 0; // Indica que LCD está pronto para receber comandos
    
-    // --- Lógica Auxiliar: Conversão Numérica ---
+    // Conversão Numérica
     wire signed [15:0] signed_value = reg_value;
     reg [15:0] abs_value;
     reg negative;
    
-    // Binário para BCD (Double Dabble)
+    // Binário para BCD
     reg [19:0] bcd;
     integer i, j;
    
@@ -97,7 +97,7 @@ module lcd (
         end
     end
    
-    // --- FSM Principal Unificada ---
+    // FSM Principal Unificada
     always @(posedge clk_50MHz or negedge reset_n) begin
         if (!reset_n) begin
             state <= OFF;
@@ -131,7 +131,7 @@ module lcd (
                 end
             end else begin
                 case (state)
-                    // === Sequência de Inicialização ===
+                    // Sequência de Inicialização
                     OFF: begin
                         LCD_DATA <= 8'h00;
                         LCD_EN <= 0;
@@ -272,7 +272,7 @@ module lcd (
                         state <= PULSE_EN;
                     end
                    
-                    // === Estado IDLE e Preparação de Dados ===
+                    // Estado IDLE e Preparação de Dados
                     IDLE: begin
                         init_mode <= 0;
                         lcd_ready <= 1;  // LCD pronto
@@ -320,29 +320,26 @@ module lcd (
                            
                             // 3. Preenche Dados da Linha 2
                             if (opcode_last == 3'b110) begin
-                                // MODIFICAÇÃO: Não ativa clear_pending.
-                                // A linha 2 já foi limpa pelos loops no passo 1.
-                                // A linha 1 já tem "CLEAR" do passo 2.
-                                // Apenas seguimos para escrever na tela.
                                 clear_pending <= 0;
                             end else begin
                                 // Lógica normal para mostrar números
                                 
-                                // Reg Number (binário) ex: "0" a "15" (mas aqui é só 1 dígito hex se fosse converter, mas o código original soma 0x30 direto bit a bit - isso parece ser binário visual)
-                                line2[0] <= 8'h30 + reg_number[3];
-                                line2[1] <= 8'h30 + reg_number[2];
-                                line2[2] <= 8'h30 + reg_number[1];
-                                line2[3] <= 8'h30 + reg_number[0];
+                                line2[0] <= "[";
+										  line2[1] <= 8'h30 + reg_number[3];
+                                line2[2] <= 8'h30 + reg_number[2];
+                                line2[3] <= 8'h30 + reg_number[1];
+                                line2[4] <= 8'h30 + reg_number[0];
+                                line2[5] <= "]";
                                 
                                 // Sinal e Valor
-                                line2[5] <= negative ? "-" : "+";
+                                line2[10] <= negative ? "-" : "+";
                                 
                                 // Converter BCD para ASCII
-                                line2[6] <= (bcd[19:16] == 0) ? " " : 8'h30 + bcd[19:16];
-                                line2[7] <= (bcd[15:12] == 0 && bcd[19:16] == 0) ? " " : 8'h30 + bcd[15:12];
-                                line2[8] <= 8'h30 + bcd[11:8];
-                                line2[9] <= 8'h30 + bcd[7:4];
-                                line2[10] <= 8'h30 + bcd[3:0];
+                                line2[11] <= (bcd[19:16] == 0) ? " " : 8'h30 + bcd[19:16];
+                                line2[12] <= (bcd[15:12] == 0 && bcd[19:16] == 0) ? " " : 8'h30 + bcd[15:12];
+                                line2[13] <= 8'h30 + bcd[11:8];
+                                line2[14] <= 8'h30 + bcd[7:4];
+                                line2[15] <= 8'h30 + bcd[3:0];
                                 
                                 clear_pending <= 0;
                             end
@@ -362,7 +359,7 @@ module lcd (
                         end
                     end
                    
-                    // === Sequência de Escrita no LCD ===
+                    // Sequência de Escrita no LCD
                     SET_ADDR1: begin
                         LCD_RS <= 0;
                         LCD_DATA <= 8'h80;  // Endereço linha 1 (0x00)
@@ -443,7 +440,7 @@ module lcd (
                         state <= PULSE_EN;
                     end
                    
-                    // === Gerador de Pulso Enable ===
+                    // Gerador de Pulso Enable
                     PULSE_EN: begin
                         if (delay_cnt == 0) begin
                             LCD_EN <= 1;

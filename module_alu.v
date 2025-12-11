@@ -19,9 +19,6 @@ module module_alu (
         result_c2 = 32'd0;
 
         if (opcode != LOAD && opcode != CLEAR && opcode != DISPLAY) begin
-            // Converter para signed corretamente
-            // Em Verilog, quando atribuímos um valor unsigned para signed,
-            // o Verilog interpreta como complemento de 2 automaticamente
             operand_A = $signed(register_A);
             operand_B = $signed(register_B);
 
@@ -34,11 +31,10 @@ module module_alu (
 					 default: result_c2 = result_c2;
 				endcase
        
-            // Truncar para 16 bits com saturação (opcional)
             if (result_c2 > 32767) begin
-                result = 16'h7FFF;  // Saturação positiva
+                result = 16'h7FFF;
             end else if (result_c2 < -32768) begin
-                result = 16'h8000;  // Saturação negativa
+                result = 16'h8000;
             end else begin
                 result = result_c2[15:0];  // Apenas pega os 16 bits menos significativos
             end

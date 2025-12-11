@@ -14,8 +14,8 @@ module memory (
     reg [15:0] registers [0:15];
 
     // Leitura dos registradores (assíncrona)
-	  assign read_data1 = registers[read_reg1];
-	  assign read_data2 = registers[read_reg2];
+	 assign read_data1 = registers[read_reg1];
+	 assign read_data2 = registers[read_reg2];
 
     // Escrita no registrador (síncrona) e reset
     always @(posedge clk or posedge reset) begin
